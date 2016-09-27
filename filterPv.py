@@ -6,13 +6,15 @@ import random
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from threshold import Threshold
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
+'''
+    ad: ad info
+'''
 class Ad(object):
-
-    
     def __init__(self, name, pos, theta, demand):
         self.name = name
         self.pos = pos
@@ -29,7 +31,11 @@ class Ad(object):
         self.ctrretain = dict()
         self.ctrfilter = dict()
         self.thresholdlog = dict()
+        self.usingthresholdlog = dict()
 
+'''
+    pv: user info
+'''
 class Pv(object):
 
     def __init__(self, cookie):
@@ -38,22 +44,55 @@ class Pv(object):
 
 class sfp(object):
 
-    ads = []
+    #ads = []
     pv = None
     cookie_strategy = dict()
 
+    '''
+        init ads, 
+        include name, pos, theta, demand
+    '''
     def init_ads(self, num = -1, pos = 'PDPS'):
+        ads = []
         if num == -1:
-            num = random.randint(1, 3)
+            num = random.randint(1, 1)
         print 'init ads: [',
         for i in range(0, num):
             theta = random.random()
             demand = random.randint(100, 10000)
             ad = Ad('ad'+str(i), pos, theta, demand)
             print ad.name, ',', 
-            self.ads.append(ad)
-        print ']', num, 'ads init finished'
+            ads.append(ad)
+        print '],', num, 'ads init finished'
+        return ads
         #print 'init ads: ', self.ads
+
+    '''
+        copy ads
+    '''
+    def copy_ads(self, ads):
+        copyads = []
+        for ad in ads:
+            nad = Ad(ad.name, ad.pos, ad.theta, ad.demand)
+            copyads.append(nad)
+        return copyads
+    
+    '''
+        set ads1, ads2 ctr for the same
+    '''
+    def set_ads_ctr(self, ads1, ads2):
+        for i in range(0, len(ads1)):
+            ads1[i].ctr = random.uniform(0.0005, 0.1)
+            ads2[i].ctr = ads1[i].ctr
+
+    '''
+        set adsList Ctr for the ads
+    '''
+    def setAdsListCtr(self, srcads, adsList):
+        for ads in adsList:
+            for i in range(0, len(ads)):
+                ads[i].ctr = srcads[i].ctr
+
 
     def init_strategy(self):
         for i in range(0, 10):
@@ -98,15 +137,17 @@ class sfp(object):
                 ad.candidateNum[strategy_name] = 0
                 ad.selectedNum[strategy_name] = 0
             ad.candidateNum[strategy_name] = ad.candidateNum[strategy_name] + 1
-            ad.ctr = random.uniform(0.0005, 0.1)
+            #ad.ctr = random.uniform(0.0005, 0.1)
             if not ad.ctrlog.has_key(strategy_name):
                 ad.ctrlog[strategy_name] = []
                 ad.thresholdlog[strategy_name] = []
+                ad.usingthresholdlog[strategy_name] = []
                 ad.ctrretain[strategy_name] = []
                 ad.ctrfilter[strategy_name] = []
             ad.ctrlog[strategy_name].append(ad.ctr)
             ad.thresholdlog[strategy_name].append(ad.threshold[strategy_name])
             t = threshold(ad, strategy_name)
+            ad.usingthresholdlog[strategy_name].append(t)
             print 'ctr, threshold, adn using threshold is :', ad.ctr, ad.threshold[strategy_name], t,
             #if ad.ctr > ad.threshold[strategy_name]:
             if ad.ctr > t:
@@ -130,9 +171,15 @@ class sfp(object):
 
         print '\n\n\n'
 
+    '''
+        using current threshold as threshold
+    '''
     def simpleThreshold(self, ad, strategy_name):
         return ad.threshold[strategy_name]
 
+    '''
+        adjust threshold by threshold*retain/theta
+    '''
     def simpleAdjustThreshold(self, ads, strategy_name):
         print 'threshold adjust:'
         for ad in ads:
@@ -141,12 +188,23 @@ class sfp(object):
                 print ad.name, 'in ', strategy_name, ' threshold from ', ad.threshold[strategy_name],
                 ad.threshold[strategy_name] = ad.threshold[strategy_name] * ad.retainRate[strategy_name] / ad.theta
                 print ' to ', ad.threshold[strategy_name]
+            if ad.threshold[strategy_name] >= 1.0:
+                ad.threshold[strategy_name] = 1.0
             print ad.name, 'retain pro is', ad.retainRate[strategy_name], ' theta is', ad.theta, ' candidate num is', ad.candidateNum[strategy_name], ' selected num is', ad.selectedNum[strategy_name]
         print 'threshold adjusted finished'
 
-    def eThreshold(self, ad, strategy_name):
-        thresholdlist = ad.thresholdlog[strategy_name]
-        t = sum(thresholdlist) / float(len(thresholdlist))
+    '''
+        using e as threshold
+    '''
+    def eThreshold(self, ad, strategy_name, num):
+        threholdlist = ad.thresholdlog[strategy_name]
+        l = len(thresholdlist)
+        if l < 0:
+            return ad.threshold[strategy_name]
+        if num == 0:
+            return sum(threholdlist) / float(len(threholdlist))
+        ll = len(thresholdlist[l-num:])
+        t = sum(thresholdlist[l-num:]) / float(ll)
         return t
 
     def usingEAjustThreshold(self, ads):
@@ -156,12 +214,17 @@ class sfp(object):
             if ad.retainRate[strategy_name] != 0.0:
                 print ad.name, 'in ', strategy_name, ' threshold from ', ad.threshold[strategy_name],
                 ad.threshold[strategy_name] = ad.threshold[strategy_name] * ad.retainRate[strategy_name] / ad.theta
+                if ad.threshold[strategy_name] >= 1.0:
+                    ad.threshold[strategy_name] = 1.0
                 print ' to ', ad.threshold[strategy_name]
             print ad.name, 'retain pro is', ad.retainRate[strategy_name], ' theta is', ad.theta, ' candidate num is', ad.candidateNum[strategy_name], ' selected num is', ad.selectedNum[strategy_name]
         print 'threshold adjusted finished'
         
 
 
+    '''
+        get strategy for current hashcode
+    '''
     def strategy(self, hashcode):
         index = hashcode % 997
         index = index % 100
@@ -170,48 +233,72 @@ class sfp(object):
 
     def do(self):
 
-        self.init_ads()
+        #self.init_ads()
         self.init_strategy()
+        ads4simple = self.init_ads()
+        ads4e = self.copy_ads(ads4simple)
 
         i = 0
         while True:
+            print 'round: ', i
+
             pv = Pv(random.randint(0, 1000))
-            #self.selectAd(pv, self.ads, self.simpleThreshold, self.simpleAdjustThreshold)
-            self.selectAd(pv, self.ads, self.eThreshold, self.simpleAdjustThreshold)
+
+            self.set_ads_ctr(ads4simple, ads4e)
+
+            ###default select
+            self.selectAd(pv, ads4simple, self.simpleThreshold, self.simpleAdjustThreshold)
+            ###using e select
+            self.selectAd(pv, ads4e, self.eThreshold, self.simpleAdjustThreshold)
             i = i + 1
             if i >= 20000:
                 break
-        for ad in self.ads:
-            for strategy in ad.ctrlog.keys():
-                #self.drawPlot('retain vs retain', ad.ctrretain[strategy], ad.ctrfilter[strategy]) 
-                #self.drawTwoPlot(ad.name+strategy+'ctr', ad.ctrlog[strategy], 
-                #        ad.name+strategy+'threshold', ad.thresholdlog[strategy])
-                self.evaluation(ad.ctrlog[strategy], ad.ctrretain[strategy], ad.ctrfilter[strategy], ad.theta)
+
+        self.draw(ads4simple, 'Default Select')
+        self.draw(ads4e, 'E Select')
 
         return 
+
+    def draw(self, ads, testname):
+        for ad in ads:
+            for strategy in ad.ctrlog.keys():
+                #self.drawPlot('retain vs retain', ad.ctrretain[strategy], ad.ctrfilter[strategy]) 
+                print ad.name, strategy, testname
+                self.evaluation(ad.ctrlog[strategy], ad.ctrretain[strategy], ad.ctrfilter[strategy], ad.theta)
+                self.drawTwoPlot(ad.name+'-'+strategy+'-ctr', ad.ctrlog[strategy], 
+                        ad.name+'-'+strategy+'-threshold', ad.thresholdlog[strategy], 
+                        ad.name+'-'+strategy+'-usingthreshold', ad.usingthresholdlog[strategy])
+
 
     def drawPlot(self, title, data1, data2):
         plt.plot(data1, 'k')
         plt.plot(data2, 'g')
         plt.show()
 
-    def drawTwoPlot(self, title1, data1, title2, data2):
+    def drawTwoPlot(self, title1, data1, title2, data2, title3, data3):
         x1 = range(0, len(data1))
         x2 = range(0, len(data2))
+        x3 = range(0, len(data3))
         
         y1 = data1
         y2 = data2
+        y3 = data3
                    
-        plt.subplot(2, 1, 1)
+        plt.subplot(3, 1, 1)
         #plt.plot(x1, y1, 'yo-')
         plt.plot(x1, y1)
         plt.title('A tale of 2 subplots')
         plt.ylabel(title1)
                         
-        plt.subplot(2, 1, 2)
+        plt.subplot(3, 1, 2)
         plt.plot(x2, y2)
         plt.xlabel('time (s)')
         plt.ylabel(title2)
+
+        plt.subplot(3, 1, 3)
+        plt.plot(x3, y3)
+        plt.xlabel('time (s)')
+        plt.ylabel(title3)
         
         plt.show()
 
@@ -237,7 +324,7 @@ class sfp(object):
                 filter_greater = filter_greater + 1
             else:
                 filter_lower = filter_lower + 1
-        print 'total pv num is: [', len(totallist), ']; theta is: [', theta, '], key is: [', key, ']'
+        print 'total pv num is: [', len(totallist), ']; theta is: [', theta, '], retain pro is: [', len(retainlist)*1.0/len(totallist), ']; key is: [', key, ']'
         if len(retainlist) != 0 :
             print 'retain pv num is: [', len(retainlist), '], greater than key num is: [', retain_greater, '], pro is: [', retain_greater*1.0/len(retainlist), '], lower than key num is: [', retain_lower, '], pro is: [', retain_lower*1.0/len(retainlist), ']'
         else:
