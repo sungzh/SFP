@@ -4,6 +4,7 @@
 import sys
 import random
 import json
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from threshold import Threshold
@@ -47,6 +48,7 @@ class sfp(object):
     #ads = []
     pv = None
     cookie_strategy = dict()
+    t = Threshold()
 
     '''
         init ads, 
@@ -76,6 +78,10 @@ class sfp(object):
             nad = Ad(ad.name, ad.pos, ad.theta, ad.demand)
             copyads.append(nad)
         return copyads
+    
+    def setAdsCtr(self, ads):
+        for ad in ads:
+            ad.ctr = random.uniform(0.0005, 0.1)
     
     '''
         set ads1, ads2 ctr for the same
@@ -124,7 +130,7 @@ class sfp(object):
         pv = Pv(random.randint(0, 10000))
 
 
-    def selectAd(self, pv, ads, threshold, adjustThreshold):
+    def selectAd(self, pv, ads, threshold, paramNum, adjustThreshold, adjustParamNum):
 
         strategy_name = self.strategy(pv.cookie)
         print 'pv:', pv.cookie, ' in strategy: ', strategy_name
@@ -146,9 +152,9 @@ class sfp(object):
                 ad.ctrfilter[strategy_name] = []
             ad.ctrlog[strategy_name].append(ad.ctr)
             ad.thresholdlog[strategy_name].append(ad.threshold[strategy_name])
-            t = threshold(ad, strategy_name)
+            t = threshold(ad.thresholdlog[strategy_name], paramNum)
             ad.usingthresholdlog[strategy_name].append(t)
-            print 'ctr, threshold, adn using threshold is :', ad.ctr, ad.threshold[strategy_name], t,
+            print 'ctr, threshold, and using threshold is :', ad.ctr, ad.threshold[strategy_name], t,
             #if ad.ctr > ad.threshold[strategy_name]:
             if ad.ctr > t:
                 selectedAd.append(ad)
@@ -167,60 +173,9 @@ class sfp(object):
         else:
             print 'selected not ad'
 
-        adjustThreshold(ads, strategy_name)
+        adjustThreshold(ads, strategy_name, adjustParamNum)
 
         print '\n\n\n'
-
-    '''
-        using current threshold as threshold
-    '''
-    def simpleThreshold(self, ad, strategy_name):
-        return ad.threshold[strategy_name]
-
-    '''
-        adjust threshold by threshold*retain/theta
-    '''
-    def simpleAdjustThreshold(self, ads, strategy_name):
-        print 'threshold adjust:'
-        for ad in ads:
-            ad.retainRate[strategy_name] = ad.selectedNum[strategy_name] * 1.0 / ad.candidateNum[strategy_name]
-            if ad.retainRate[strategy_name] != 0.0:
-                print ad.name, 'in ', strategy_name, ' threshold from ', ad.threshold[strategy_name],
-                ad.threshold[strategy_name] = ad.threshold[strategy_name] * ad.retainRate[strategy_name] / ad.theta
-                print ' to ', ad.threshold[strategy_name]
-            if ad.threshold[strategy_name] >= 1.0:
-                ad.threshold[strategy_name] = 1.0
-            print ad.name, 'retain pro is', ad.retainRate[strategy_name], ' theta is', ad.theta, ' candidate num is', ad.candidateNum[strategy_name], ' selected num is', ad.selectedNum[strategy_name]
-        print 'threshold adjusted finished'
-
-    '''
-        using e as threshold
-    '''
-    def eThreshold(self, ad, strategy_name, num):
-        threholdlist = ad.thresholdlog[strategy_name]
-        l = len(thresholdlist)
-        if l < 0:
-            return ad.threshold[strategy_name]
-        if num == 0:
-            return sum(threholdlist) / float(len(threholdlist))
-        ll = len(thresholdlist[l-num:])
-        t = sum(thresholdlist[l-num:]) / float(ll)
-        return t
-
-    def usingEAjustThreshold(self, ads):
-        print 'threshold adjust:'
-        for ad in ads:
-            ad.retainRate[strategy_name] = ad.selectedNum[strategy_name] * 1.0 / ad.candidateNum[strategy_name]
-            if ad.retainRate[strategy_name] != 0.0:
-                print ad.name, 'in ', strategy_name, ' threshold from ', ad.threshold[strategy_name],
-                ad.threshold[strategy_name] = ad.threshold[strategy_name] * ad.retainRate[strategy_name] / ad.theta
-                if ad.threshold[strategy_name] >= 1.0:
-                    ad.threshold[strategy_name] = 1.0
-                print ' to ', ad.threshold[strategy_name]
-            print ad.name, 'retain pro is', ad.retainRate[strategy_name], ' theta is', ad.theta, ' candidate num is', ad.candidateNum[strategy_name], ' selected num is', ad.selectedNum[strategy_name]
-        print 'threshold adjusted finished'
-        
-
 
     '''
         get strategy for current hashcode
@@ -236,7 +191,11 @@ class sfp(object):
         #self.init_ads()
         self.init_strategy()
         ads4simple = self.init_ads()
-        ads4e = self.copy_ads(ads4simple)
+        adsList = []
+        testNum = 20
+        for i in range(0, testNum):
+            ads = self.copy_ads(ads4simple)
+            adsList.append(ads)
 
         i = 0
         while True:
@@ -244,18 +203,39 @@ class sfp(object):
 
             pv = Pv(random.randint(0, 1000))
 
-            self.set_ads_ctr(ads4simple, ads4e)
+            self.setAdsCtr(ads4simple)
+            self.setAdsListCtr(ads4simple, adsList)
 
             ###default select
-            self.selectAd(pv, ads4simple, self.simpleThreshold, self.simpleAdjustThreshold)
+            self.selectAd(pv, ads4simple, self.t.simpleThreshold, 0, self.t.simpleAdjustThreshold, 0)
+
             ###using e select
-            self.selectAd(pv, ads4e, self.eThreshold, self.simpleAdjustThreshold)
+            #for index in range(0, testNum):
+            #    self.selectAd(pv, adsList[index], self.t.lastnumThreshold, (index+1)*20, self.t.simpleAdjustThreshold)
+
+            ###weight adjust threshold
+            for index in range(0, testNum):
+                self.selectAd(pv, adsList[index], self.t.simpleThreshold, 0, self.t.weightedAdjustThreshold, 0.05*(index+1))
             i = i + 1
             if i >= 20000:
                 break
 
+        #evaluation
+
+        ##E 
+        titleList = []
+        for index in range(0, len(adsList)):
+            titleList.append(str((index+1)*20) + ' E Select')
+
+        ##weigth 
+        titleList = []
+        for index in range(0, len(adsList)):
+            titleList.append(str(0.05*(index+1)) + ' Weight Select')
+        self.evals(ads4simple, 'Default Select', adsList, titleList)
+        self.drawInOnePic(ads4simple, 'Default Select', adsList, titleList)
         self.draw(ads4simple, 'Default Select')
-        self.draw(ads4e, 'E Select')
+        #for ad in adsList:
+        #    self.draw(ad, 'E Select')
 
         return 
 
@@ -301,6 +281,45 @@ class sfp(object):
         plt.ylabel(title3)
         
         plt.show()
+
+
+    def evals(self, ads, title, adsList, titleList):
+        for ad in ads:
+            for strategy in ad.ctrlog.keys():
+                print ad.name, strategy, title
+                self.evaluation(ad.ctrlog[strategy], ad.ctrretain[strategy], ad.ctrfilter[strategy], ad.theta)
+        for i in range(0, len(adsList)):
+            for ad in adsList[i]:
+                for strategy in ad.ctrlog.keys():
+                    print ad.name, strategy, titleList[i]
+                    self.evaluation(ad.ctrlog[strategy], ad.ctrretain[strategy], ad.ctrfilter[strategy], ad.theta)
+
+    '''
+        only for on strategy
+    '''
+    def drawInOnePic(self, ads, title, adsList, titleList):
+        strategy = 'strategy_baseline'
+        l = len(adsList)
+        col = math.ceil(math.sqrt(l+1))
+        row = math.ceil(float(l+1)/col)
+        print 'col:', col, ' row:', row
+
+        x_ad = range(0, len(ads[0].usingthresholdlog[strategy]))
+
+        plt.subplot(row, col, 1)
+        plt.plot(x_ad, ads[0].usingthresholdlog[strategy])
+        plt.xlabel('time (s)')
+        plt.ylabel(title)
+
+        for i in range(0, l):
+            x = range(0, len(adsList[i][0].usingthresholdlog[strategy]))
+            plt.subplot(row, col, i+2)
+            plt.plot(x, adsList[i][0].usingthresholdlog[strategy])
+            plt.xlabel('time (s)')
+            plt.ylabel(titleList[i])
+        plt.show()
+
+
 
     def evaluation(self, totallist, retainlist, filterlist, theta):
         tlist = sorted(totallist, reverse=True)
