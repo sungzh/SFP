@@ -34,6 +34,9 @@ class Ad(object):
         self.thresholdlog = dict()
         self.usingthresholdlog = dict()
 
+        self.bucketctr = dict()
+        self.precision = 100000
+
 '''
     pv: user info
 '''
@@ -82,6 +85,11 @@ class sfp(object):
     def setAdsCtr(self, ads):
         for ad in ads:
             ad.ctr = random.uniform(0.0005, 0.1)
+
+    # defalut ads size is 1
+    def setAdsCtrUsingFile(self, ads, ctr):
+        for ad in ads:
+            ad.ctr = ctr
     
     '''
         set ads1, ads2 ctr for the same
@@ -129,6 +137,24 @@ class sfp(object):
     def construct_pv(self):
         pv = Pv(random.randint(0, 10000))
 
+    def readCtrListFromFile(self, filename):
+        ctrList = []
+        count = 0
+        fi = open(filename, 'r')
+        for line in fi:
+            items = line.strip().split('\t')
+            if len(items) != 2:
+                print line
+            ctr = items[1]
+            if ctr == 'NULL':
+                continue
+            ctrList.append(float(ctr))
+            count = count +1
+            #if count == 10000:
+                #break
+        print count
+        return ctrList
+
 
     def selectAd(self, pv, ads, threshold, paramNum, adjustThreshold, adjustParamNum):
 
@@ -150,9 +176,21 @@ class sfp(object):
                 ad.usingthresholdlog[strategy_name] = []
                 ad.ctrretain[strategy_name] = []
                 ad.ctrfilter[strategy_name] = []
+                ad.bucketctr[strategy_name] = dict()
+                for p in range(0, ad.precision+1):
+                    ad.bucketctr[strategy_name][p] = 0
             ad.ctrlog[strategy_name].append(ad.ctr)
+            key = int(math.floor(ad.ctr * ad.precision))
+            ad.bucketctr[strategy_name][key] = ad.bucketctr[strategy_name][key] + 1
+            #print 'bucket ctr is:', 
+            #for key in ad.bucketctr[strategy_name].keys():
+                #if ad.bucketctr[strategy_name][key] > 0:
+                    #print '[', key, ',', ad.bucketctr[strategy_name][key], '] ',
+            #print '\n'
+
             ad.thresholdlog[strategy_name].append(ad.threshold[strategy_name])
-            t = threshold(ad.thresholdlog[strategy_name], paramNum)
+            #t = threshold(ad.thresholdlog[strategy_name], paramNum)
+            t = threshold(ad, strategy_name, paramNum)
             ad.usingthresholdlog[strategy_name].append(t)
             print 'ctr, threshold, and using threshold is :', ad.ctr, ad.threshold[strategy_name], t,
             #if ad.ctr > ad.threshold[strategy_name]:
@@ -186,16 +224,19 @@ class sfp(object):
         return  self.cookie_strategy[index]
 
 
+
     def do(self):
 
         #self.init_ads()
         self.init_strategy()
         ads4simple = self.init_ads()
         adsList = []
-        testNum = 20
+        testNum = 1
         for i in range(0, testNum):
             ads = self.copy_ads(ads4simple)
             adsList.append(ads)
+
+        ctrlist = self.readCtrListFromFile('./data/CB2518680718_wap.ctr')
 
         i = 0
         while True:
@@ -203,7 +244,8 @@ class sfp(object):
 
             pv = Pv(random.randint(0, 1000))
 
-            self.setAdsCtr(ads4simple)
+            #self.setAdsCtr(ads4simple)
+            self.setAdsCtrUsingFile(ads4simple, ctrlist[i])
             self.setAdsListCtr(ads4simple, adsList)
 
             ###default select
@@ -214,28 +256,45 @@ class sfp(object):
             #    self.selectAd(pv, adsList[index], self.t.lastnumThreshold, (index+1)*20, self.t.simpleAdjustThreshold)
 
             ###weight adjust threshold
+            #for index in range(0, testNum):
+            #    self.selectAd(pv, adsList[index], self.t.simpleThreshold, 0, self.t.weightedAdjustThreshold, 0.05*(index+1))
+
+            ###bucket threshold
             for index in range(0, testNum):
-                self.selectAd(pv, adsList[index], self.t.simpleThreshold, 0, self.t.weightedAdjustThreshold, 0.05*(index+1))
+                self.selectAd(pv, adsList[index], self.t.bucketThreshold, 0, self.t.weightedAdjustThreshold, 0.05*(index+1))
             i = i + 1
-            if i >= 20000:
+            if i >= 2000:
                 break
 
         #evaluation
 
         ##E 
-        titleList = []
-        for index in range(0, len(adsList)):
-            titleList.append(str((index+1)*20) + ' E Select')
+        #titleList = []
+        #for index in range(0, len(adsList)):
+        #    titleList.append(str((index+1)*20) + ' E Select')
 
         ##weigth 
+        #titleList = []
+        #for index in range(0, len(adsList)):
+        #    titleList.append(str(0.05*(index+1)) + ' Weight Select')
+
+
+        ##bucket
         titleList = []
         for index in range(0, len(adsList)):
-            titleList.append(str(0.05*(index+1)) + ' Weight Select')
+            titleList.append(' Bucket Select')
+        
+        #self.evals(adsList[0], 'Default Select', adsList, titleList)
+        #self.draw(adsList[0], 'Bucket Select')
+        
         self.evals(ads4simple, 'Default Select', adsList, titleList)
         self.drawInOnePic(ads4simple, 'Default Select', adsList, titleList)
         self.draw(ads4simple, 'Default Select')
         #for ad in adsList:
         #    self.draw(ad, 'E Select')
+        for ad in adsList:
+            self.draw(ad, 'Bucket Select')
+        
 
         return 
 

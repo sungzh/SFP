@@ -15,7 +15,11 @@ class Threshold(object):
     '''
         using current threshold as threshold
     '''
-    def simpleThreshold(self, thresholdlist, num=-1):
+    #def simpleThreshold(self, thresholdlist, num=-1):
+    #    return thresholdlist[-1]
+
+    def simpleThreshold(self, ad, strategy_name, num=-1):
+        thresholdlist = ad.thresholdlog[strategy_name]
         return thresholdlist[-1]
 
     
@@ -49,6 +53,19 @@ class Threshold(object):
 
     def betaThreshold(self):
         return None
+
+    def bucketThreshold(self, ad, strategy_name, num=-1):
+        bucketctrmap = ad.bucketctr[strategy_name]
+        cur = 0.0
+        total = sum(bucketctrmap.values())
+        for key in sorted(bucketctrmap.keys(), reverse=True):
+            if cur/total > ad.theta:
+                return key*1.0/ad.precision
+            cur = cur + bucketctrmap[key]
+        print 'bucket threshold error'
+        return 0.01
+
+
 
 
 
